@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Crystal Violet Agglutination Test</title>
+  <style>
+    video, canvas, img {
+      border: 1px solid #444;
+      margin-top: 10px;
+      max-width: 100%;
+    }
+    #result {
+      white-space: pre-line;
+      margin-top: 15px;
+      font-size: 1em;
+      font-family: monospace;
+      background: #f3f3f3;
+      padding: 10px;
+      border: 1px solid #ccc;
+    }
+    button {
+      margin-top: 10px;
+      padding: 10px 20px;
+      font-size: 16px;
+    }
+    form {
+      margin-top: 20px;
+    }
+    .legend {
+      margin-top: 20px;
+      font-family: sans-serif;
+      background: #fdfbe9;
+      border-left: 4px solid #aaa;
+      padding: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Crystal Violet Agglutination Detection</h1>
+
+  <!-- Webcam Capture Section -->
+  <video id="video" width="400" height="300" autoplay></video><br>
+  <button onclick="capture()">Capture & Analyze</button>
+  <canvas id="canvas" width="400" height="300" style="display: none;"></canvas>
+
+  <div id="result">{{ uploaded_result if uploaded_result else 'Result will appear here.' }}</div>
+  <img id="resultImage" src="{{ uploaded_image if uploaded_image else '' }}" alt="Processed Image"
+       style="display: {{ 'block' if uploaded_image else 'none' }}; margin-top: 10px;" />
+  <br>
+  <a id="downloadBtn"
+     href="{{ uploaded_image if uploaded_image else '#' }}"
+     download style="display: {{ 'inline-block' if uploaded_image else 'none' }};">
+    <button>Download Result Image</button>
+  </a>
+
+  <!-- Upload Form -->
+  <h2>Or Upload an Image:</h2>
+  <form action="/upload" method="post" enctype="multipart/form-data">
+    <input type="file" name="file" accept="image/*" required />
+    <button type="submit">Upload & Analyze</button>
+  </form>
+
+  <!-- Legend Section -->
+  <div class="legend">
+    <strong>Legend:</strong><br>
+    - Each well is labeled as <code>W1</code>, <code>W2</code>, etc.<br>
+    - Agglutination Level is based on grayscale density (darker = more agglutinated)<br>
+    - UV treatment recommendations are given based on intensity range:<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<code>&lt; 50</code> → Very High | 30–40 min<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<code>50–100</code> → High | 20–30 min<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<code>100–150</code> → Moderate | 10–20 min<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<code>150–200</code> → Low | 5–10 min<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<code>&gt; 200</code> → No Agglutination | No UV required
+  </div>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const context = canvas.getContext('2d');
+    const resultDiv = document.getElementById('result');
+    const resultImage = document.getElementById('resultImage');
+    const downloadBtn = document.getElementById('downloadBtn');
+
+    if (navigator.mediaDevices) {
+      navigator.mediaDevices.getUserMedia({ video: true })
+        .then(stream => {
+          video.srcObject = stream;
+        });
+    }
+
+    function capture() {
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imageData = canvas.toDataURL('image/png');
+
+      fetch('/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: imageData })
+      })
+      .then(response => response.json())
+      .then(data => {
+        resultDiv.textContent = data.result;
+        if (data.image_url) {
+          resultImage.src = data.image_url;
+          resultImage.style.display = 'block';
+          downloadBtn.href = data.image_url;
+          downloadBtn.style.display = 'inline-block';
+        }
+      })
+      .catch(err => {
+        resultDiv.textContent = 'Error analyzing image.';
+        console.error(err);
+      });
+    }
+  </script>
+</body>
+</html>
