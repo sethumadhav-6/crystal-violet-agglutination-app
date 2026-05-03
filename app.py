@@ -3,16 +3,22 @@ import cv2
 import numpy as np
 import base64
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, redirect, url_for
 from fpdf import FPDF
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 
+# Setup directories
 RESULT_FOLDER = 'static/results'
+UPLOAD_FOLDER = 'static/uploads'
 os.makedirs(RESULT_FOLDER, exist_ok=True)
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 def classify_crystal_violet(image, rows=8, cols=2):
-    # Resize to ensure clean division for the grid
+    # Resize for consistent grid analysis
     image = cv2.resize(image, (cols * 150, rows * 100))
     output_image = image.copy()
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -28,7 +34,7 @@ def classify_crystal_violet(image, rows=8, cols=2):
             cell = gray[y1:y2, x1:x2]
             mean_val = np.mean(cell)
 
-            # Intensity Logic 
+            # Intensity Classification
             if mean_val < 50:
                 level, uv = "Very High Agglutination", "30-40 min"
             elif mean_val < 100:
@@ -43,7 +49,7 @@ def classify_crystal_violet(image, rows=8, cols=2):
             well_num = i * cols + j + 1
             results.append({"well": well_num, "level": level, "uv": uv, "val": int(mean_val)})
 
-            # Draw UI labels
+            # Draw labels on result image
             cv2.rectangle(output_image, (x1, y1), (x2, y2), (255, 255, 0), 1)
             cv2.putText(output_image, f"W{well_num}", (x1 + 5, y1 + 20), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
@@ -57,33 +63,33 @@ def classify_crystal_violet(image, rows=8, cols=2):
     
     cv2.imwrite(img_path, output_image)
     
-    # Generate PDF with Image
+    # Generate PDF Report
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
-    pdf.cell(190, 10, txt="Crystal Violet Agglutination Report", ln=True, align='C')
+    pdf.cell(190, 10, txt="Agglutination Analysis Report", ln=True, align='C')
     pdf.ln(5)
-    
-    # Insert the processed image into PDF
     pdf.image(img_path, x=10, y=None, w=100)
     pdf.ln(5)
-    
     pdf.set_font("Arial", size=10)
     for res in results:
-        text = f"Well {res['well']}: {res['level']} | Intensity: {res['val']} | UV: {res['uv']}"
-        pdf.cell(190, 8, txt=text, ln=True)
+        text = f"Well {res['well']}: {res['level']} | UV: {res['uv']}"
+        pdf.cell(190, 7, txt=text, ln=True)
     
     pdf.output(pdf_path)
 
-    summary = f"Analysis Complete: {rows}x{cols} grid processed."
+    summary = f"Processed {rows}x{cols} grid."
     return summary, f"/static/results/{img_filename}", f"/static/results/{pdf_filename}"
+
+@app.route('/')
+def index():
+    return render_template('index.html')
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
     try:
         data = request.get_json()
         img_b64 = data.get('image').split(',')[1]
-        # Default to 8x2 if not specified 
         rows = int(data.get('rows', 8))
         cols = int(data.get('cols', 2))
         
@@ -96,11 +102,32 @@ def analyze():
     except Exception as e:
         return jsonify({'result': f"Error: {str(e)}"}), 500
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+@app.route('/upload', methods=['POST'])
+def upload():
+    try:
+        if 'file' not in request.files:
+            return redirect(url_for('index'))
+        
+        file = request.files['file']
+        if file.filename == '':
+            return redirect(url_for('index'))
+
+        if file:
+            filename = secure_filename(file.filename)
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(filepath)
+
+            img = cv2.imread(filepath)
+            # Default to 8x2 for uploads
+            result, img_url, pdf_url = classify_crystal_violet(img, 8, 2)
+            
+            return render_template('index.html', 
+                                 uploaded_result=result, 
+                                 uploaded_image=img_url, 
+                                 uploaded_pdf=pdf_url)
+    except Exception as e:
+        return f"Upload Error: {str(e)}"
 
 if __name__ == '__main__':
-    # Fixed for Render: listen on 0.0.0.0 and dynamic PORT
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
