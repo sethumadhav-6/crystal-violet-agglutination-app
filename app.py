@@ -1,8 +1,9 @@
-from flask import Flask, render_template, request, jsonify, os
+import os
 import cv2
 import numpy as np
 import base64
 from datetime import datetime
+from flask import Flask, render_template, request, jsonify
 from fpdf import FPDF
 
 app = Flask(__name__)
